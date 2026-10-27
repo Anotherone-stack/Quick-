@@ -69,8 +69,13 @@ class AlpacaMarketData:
         self._last_error: Optional[str] = None
         self._reconnect_attempts = 0
 
-        self._api_key = os.getenv("ALPACA_API_KEY")
-        self._secret_key = os.getenv("ALPACA_SECRET_KEY")
+        self._api_key = (
+            os.getenv("APCA_API_KEY_ID") or os.getenv("ALPACA_API_KEY")
+        )
+        self._secret_key = (
+            os.getenv("APCA_API_SECRET_KEY")
+            or os.getenv("ALPACA_SECRET_KEY")
+        )
 
     @property
     def is_running(self) -> bool:
@@ -125,11 +130,14 @@ class AlpacaMarketData:
 
             if not self._api_key or not self._secret_key:
                 raise RuntimeError(
-                    "Set ALPACA_API_KEY and ALPACA_SECRET_KEY."
+                    "Set APCA_API_KEY_ID and APCA_API_SECRET_KEY."
                 )
 
             self._stop_event.clear()
             self._running = True
+            self._connected = False
+            self._last_event_at = None
+            self._last_error = None
             self._thread = threading.Thread(
                 target=self._run_loop,
                 name="alpaca-market-data",
@@ -177,6 +185,8 @@ class AlpacaMarketData:
     def _mark_event(self) -> None:
         with self._lock:
             self._last_event_at = datetime.now(timezone.utc)
+            self._connected = True
+            self._last_error = None
 
     @staticmethod
     def _dispatch(

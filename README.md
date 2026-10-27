@@ -1,8 +1,8 @@
-SPCX Live Market Monitor
+SPCX Market Dashboard
 
-A real-time stock market monitoring application built with Python and Tkinter that streams live quote and trade data for SPCX using the Alpaca Market Data API.
+A Streamlit stock dashboard with historical market charts and an optional live SPCX quote and trade monitor powered by Alpaca.
 
-The application provides a graphical dashboard for monitoring bid and ask prices, tracking incoming trades, estimating trade direction, and highlighting large trades.
+The live monitor displays bid and ask prices, a bounded trade tape, estimated trade direction, and large-trade alerts. It runs alongside the existing historical dashboard.
 
 Features
 
@@ -13,25 +13,27 @@ Trade Direction Estimation: Classifies trades as buy-initiated, sell-initiated, 
 Large Trade Alerts: Highlights trades involving 1,000 shares or more.
 Real-Time Statistics: Tracks the total number of trades, large trades, and the most recent trade price.
 New York Timestamps: Displays trade timestamps in Eastern Time using the America/New_York time zone.
-Threaded Data Processing: Runs the market data stream in a background thread to help keep the graphical interface responsive.
+Threaded Data Processing: Runs the market data stream in a background thread while the dashboard remains responsive.
 Connection Management: Provides controls to start and stop the feed, along with connection status indicators.
 Bounded Trade History: Displays up to 500 recent trades in the trade tape to help maintain UI responsiveness.
 Technology Stack
 
-Python 3.9+ — Application logic.
-Tkinter and ttk — Graphical user interface.
+Python 3.10+ — Application logic.
+Streamlit — Web dashboard and live monitor.
+Pandas and Plotly — Market data tables and interactive charts.
+Yahoo Finance via yfinance — Historical dashboard data.
 Alpaca Market Data API — Live stock quotes and trades.
 alpaca-py — Alpaca's official Python SDK.
-Threading and Queue — Background streaming and thread-safe communication with the UI.
-zoneinfo — Time-zone conversion for Eastern Time.
+Threading and locks — Background streaming and thread-safe monitor state.
+zoneinfo — New York time-zone conversion.
 Requirements
 
 Before running the application, ensure you have:
 
-Python 3.9 or later.
+Python 3.10 or later.
 An Alpaca account with valid API credentials.
 Access to the Alpaca stock market data feed.
-A desktop environment capable of running Tkinter.
+An internet connection for historical and live market data.
 Note: The application explicitly uses the IEX feed. Data availability and subscription permissions depend on your Alpaca account. IEX data may differ from consolidated, all-exchange market data.
 
 Installation
@@ -65,13 +67,7 @@ source .venv/bin/activate
 
 
 python -m pip install --upgrade pip
-pip install alpaca-py
-Tkinter is typically included with standard Python installations. On some Linux distributions, you may need to install it separately using your system package manager.
-
-For example, on Ubuntu or Debian:
-
-
-sudo apt install python3-tk
+pip install -r requirements.txt
 API Configuration
 
 The application requires two environment variables:
@@ -98,19 +94,17 @@ Security: Never commit API credentials to source control, include them in screen
 
 Running the Application
 
-Save the Python code in a file named main.py, then run:
+From the repository root, start the dashboard:
 
 
-python main.py
-The SPCX Market Monitor window will open.
+streamlit run src/app_ui.py
 
-Click Start Feed to connect to Alpaca.
-Wait for the connection status to change to LIVE.
-Monitor the latest bid and ask prices.
-Watch incoming trades in the live trade tape.
-Look for highlighted trades marked <<< LARGE TRADE.
-Click Stop Feed to stop receiving market data.
-If the API credentials are missing, the application displays an error message and does not start the stream.
+The dashboard opens in your browser. In the **SPCX live market monitor** section, click **Start feed** to connect to Alpaca. The monitor updates every two seconds, shows incoming quotes and trades, and marks large trades with `<<< LARGE TRADE`. Click **Stop feed** to end the stream.
+
+Run the automated tests with:
+
+
+python -m pytest
 
 Dashboard Overview
 
@@ -119,10 +113,9 @@ Connection Status
 The dashboard displays the current stream status:
 
 DISCONNECTED — No active stream.
-CONNECTING — The application is attempting to establish the connection.
-LIVE — The application has received its stream-connected status event.
-STOPPING — A stop request has been initiated.
-ERROR — A stream error has occurred.
+CONNECTING / RECONNECTING — The application is attempting to receive market data.
+LIVE — The application has received a quote or trade event.
+Stream errors and reconnect attempts are shown in the live monitor.
 Bid and Ask Panels
 
 The bid panel displays the latest reported bid price and bid size. The ask panel displays the latest reported ask price and ask size.
@@ -168,7 +161,7 @@ Trade Size	Classification
 999 shares	Normal trade
 1,000 shares	Large trade
 5,000 shares	Large trade
-Large trades are highlighted with a light background and the alert <<< LARGE TRADE.
+Large trades are identified by the alert `<<< LARGE TRADE` in the trade tape.
 
 You can change the threshold by modifying LARGE_TRADE_SHARES in the source code.
 
@@ -187,11 +180,14 @@ Important: These classifications are estimates, not confirmed buyer or seller id
 Project Structure
 
 
-spcx-market-monitor/
-├── main.py          # Application entry point and UI
-├── README.md         # Project documentation
-└── .venv/            # Local virtual environment (not committed)
-The application currently keeps its interface, streaming logic, and event processing in a single Python file.
+Quick-/
+├── src/
+│   ├── app_ui.py        # Streamlit dashboard
+│   ├── live_monitor.py  # Thread-safe live quote/trade state
+│   └── market_data.py   # Alpaca stream and reconnect handling
+├── Tests/               # Automated tests
+├── requirements.txt
+└── README.md
 
 Troubleshooting
 
@@ -221,17 +217,17 @@ Verify that the symbol is valid and supported by your Alpaca data subscription.
 Confirm that market data is available for the symbol.
 Remember that the code subscribes specifically to the IEX feed.
 Check whether the market is open and whether trades are occurring.
-Tkinter is unavailable
+Dashboard dependencies are missing
 
-Problem: Python reports that the tkinter module cannot be imported.
+Problem: Streamlit or another package cannot be imported.
 
-Solution: Install the Tkinter package for your operating system or use a Python distribution that includes it.
+Solution: Install dependencies from the repository root with `python -m pip install -r requirements.txt`.
 
-The interface stops updating after an error
+The live feed does not start
 
-Problem: The dashboard shows an error or a stale connection status.
+Problem: The live monitor shows a credential or connection error.
 
-Solution: Review the exception displayed by the application. If necessary, restart the application after resolving the connection or credential issue.
+Solution: Set `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` in the environment used to launch Streamlit, verify the feed subscription, and review the error shown in the monitor.
 
 Limitations and Considerations
 
@@ -240,7 +236,7 @@ The data feed is set to IEX rather than consolidated market data.
 Trade direction is estimated using the latest available quote and is not a definitive classification.
 Trade history and counters are stored in memory and are not persisted to disk.
 The dashboard limits the visible trade tape to 500 entries.
-The code does not implement automatic reconnection or historical data backfilling.
+The live stream retries unexpected disconnects with exponential backoff; historical data backfilling is not implemented.
 A displayed LIVE status does not guarantee that every market event is received without delay or interruption.
 Disclaimer
 
@@ -253,7 +249,9 @@ Resources
 Alpaca Developer Documentation
 Alpaca Python SDK — alpaca-py
 Python Documentation
-Tkinter Documentation
+Streamlit Documentation
+Plotly Documentation
+yfinance Documentation
 License
 
 No license has been specified yet. Add a license file if you intend to distribute this project or allow others to reuse its code.

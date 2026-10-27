@@ -14,6 +14,8 @@ import plotly.graph_objects as go
 # Import yfinance to retrieve stock prices.
 import yfinance as yf
 
+from src.live_monitor import LiveMonitor
+
 
 # Configure the Streamlit page.
 st.set_page_config(
@@ -672,6 +674,119 @@ if rows:
 # Display a message if no market data was retrieved.
 else:
     st.info("Market data is temporarily unavailable. Please try again later.")
+
+
+# ---------- LIVE SPCX MONITOR ----------
+
+@st.fragment(run_every="2s")
+def render_live_monitor():
+    st.markdown("### SPCX live market monitor")
+    st.caption(
+        "Live IEX quotes and trades from Alpaca. Trade direction is an estimate."
+    )
+
+    if "live_monitor" not in st.session_state:
+        st.session_state["live_monitor"] = LiveMonitor()
+    monitor = st.session_state["live_monitor"]
+    market_data = st.session_state.get("live_market_data")
+    is_running = market_data is not None and market_data.is_running
+
+    start_col, stop_col, status_col = st.columns([1, 1, 3])
+    start_feed = start_col.button(
+        "Start feed", disabled=is_running, key="live_monitor_start"
+    )
+    stop_feed = stop_col.button(
+        "Stop feed", disabled=not is_running, key="live_monitor_stop"
+    )
+
+    if start_feed:
+        try:
+            from alpaca.data.enums import DataFeed
+
+            from src.market_data import AlpacaMarketData
+
+            market_data = AlpacaMarketData(
+                [monitor.symbol],
+                on_trade=monitor.record_trade,
+                on_quote=monitor.record_quote,
+                feed=DataFeed.IEX,
+            )
+            market_data.start()
+            st.session_state["live_market_data"] = market_data
+        except Exception as exc:
+            st.error(f"Unable to start the Alpaca feed: {exc}")
+
+    if stop_feed and market_data is not None:
+        market_data.stop()
+
+    market_data = st.session_state.get("live_market_data")
+    connection = market_data.status() if market_data is not None else {
+        "running": False,
+        "connected": False,
+        "last_error": None,
+        "reconnect_attempts": 0,
+    }
+    if connection["connected"]:
+        status_col.success("LIVE")
+    elif connection["running"]:
+        status_col.info("CONNECTING / RECONNECTING")
+    else:
+        status_col.caption("DISCONNECTED")
+
+    if connection["last_error"]:
+        st.warning(
+            f"Stream error: {connection['last_error']} "
+            f"(reconnect attempts: {connection['reconnect_attempts']})"
+        )
+
+    snapshot = monitor.snapshot()
+    quote = snapshot["quote"] or {}
+    bid_col, ask_col = st.columns(2)
+    bid_col.metric(
+        "Bid",
+        f"${quote['bid']:,.2f}" if quote else "—",
+        f"Size: {quote['bid_size']:,}" if quote else None,
+    )
+    ask_col.metric(
+        "Ask",
+        f"${quote['ask']:,.2f}" if quote else "—",
+        f"Size: {quote['ask_size']:,}" if quote else None,
+    )
+
+    trades_col, large_col, last_col = st.columns(3)
+    trades_col.metric("Trades", f"{snapshot['trade_count']:,}")
+    large_col.metric("Large trades", f"{snapshot['large_trade_count']:,}")
+    last_price = snapshot["last_trade_price"]
+    last_col.metric(
+        "Last trade",
+        f"${last_price:,.2f}" if last_price is not None else "—",
+    )
+
+    tape = pd.DataFrame(snapshot["trades"])
+    if tape.empty:
+        st.info("No trades received yet.")
+    else:
+        st.dataframe(
+            tape[["time", "symbol", "price", "size", "side", "alert"]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "time": st.column_config.TextColumn("TIME (ET)"),
+                "symbol": st.column_config.TextColumn("SYMBOL"),
+                "price": st.column_config.NumberColumn(
+                    "PRICE", format="$%.2f"
+                ),
+                "size": st.column_config.NumberColumn(
+                    "SHARES", format="%d"
+                ),
+                "side": st.column_config.TextColumn("ESTIMATED SIDE"),
+                "alert": st.column_config.TextColumn("ALERT"),
+            },
+        )
+
+
+st.divider()
+render_live_monitor()
 
 
 # ---------- FOOTER ----------

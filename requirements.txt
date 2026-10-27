@@ -1,0 +1,6 @@
+alpaca-py>=0.30
+pandas>=1.5
+plotly>=5
+pytest>=8
+streamlit>=1.37
+yfinance>=0.2
