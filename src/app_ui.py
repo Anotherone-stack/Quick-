@@ -415,10 +415,10 @@ with left:
     # Display the stock performance heading.
     st.markdown("### Stock performance")
 
-    # Create columns for the stock, period, and chart selectors.
-    controls = st.columns([1.4, 1, 1])
+    # Create controls for searching and selecting the stock, period, and chart.
+    controls = st.columns([1.35, 1.35, 1, 1])
 
-    # Create the stock selector.
+    # Search all available listings by ticker or company name.
     with controls[0]:
         default_symbols = [
             "NVDA", "AAPL", "MSFT", "GOOGL", "AMZN",
@@ -437,19 +437,47 @@ with left:
         selected_ticker = st.session_state.get("selected_ticker", "NVDA")
         if selected_ticker not in stock_symbols:
             stock_symbols.insert(0, selected_ticker)
-        ticker = st.selectbox(
-            "Stock",
-            stock_symbols,
-            index=stock_symbols.index(selected_ticker),
-            format_func=lambda symbol: (
-                f"{symbol} — {stock_names[symbol]}"
-                if symbol in stock_names
-                else symbol
-            ),
-        )
+
+        stock_search = st.text_input(
+            "Search stocks",
+            placeholder="Ticker or company name",
+            key="stock_performance_search",
+        ).strip()
+        matching_symbols = stock_symbols
+        if stock_search:
+            matching_symbols = [
+                symbol
+                for symbol in stock_symbols
+                if stock_search.casefold() in symbol.casefold()
+                or stock_search.casefold()
+                in stock_names.get(symbol, "").casefold()
+            ]
+
+    # Select from the matching stocks.
+    with controls[1]:
+        if matching_symbols:
+            selected_index = (
+                matching_symbols.index(selected_ticker)
+                if selected_ticker in matching_symbols
+                else 0
+            )
+            ticker = st.selectbox(
+                "Stock",
+                matching_symbols,
+                index=selected_index,
+                format_func=lambda symbol: (
+                    f"{symbol} — {stock_names[symbol]}"
+                    if symbol in stock_names
+                    else symbol
+                ),
+            )
+        else:
+            ticker = selected_ticker
+            st.selectbox("Stock", ["No matching stocks"], disabled=True)
+            st.info("No stocks match that search. Try another ticker or company name.")
 
     # Create the period selector.
-    with controls[1]:
+    with controls[2]:
         period_label = st.selectbox(
             "Period",
             ["1D", "5D", "1M", "3M", "6M", "1Y", "5Y"],
@@ -457,7 +485,7 @@ with left:
         )
 
     # Create the chart style selector.
-    with controls[2]:
+    with controls[3]:
         chart_type = st.selectbox(
             "Chart",
             ["Area", "Line", "Candlestick"],
