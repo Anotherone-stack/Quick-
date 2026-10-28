@@ -15,11 +15,12 @@ import plotly.graph_objects as go
 import yfinance as yf
 
 from src.live_monitor import LiveMonitor
+from src.stock_universe import load_us_stock_universe
 
 
 # Configure the Streamlit page.
 st.set_page_config(
-    page_title="Stocky | Market Dashboard",  # Browser tab title.
+    page_title="Stock | Market Dashboard",  # Browser tab title.
     page_icon="📈",  # Browser tab icon.
     layout="wide",  # Use the full browser width.
     initial_sidebar_state="expanded",  # Show the sidebar initially.
@@ -137,7 +138,6 @@ MUTED = "#7f8b9d"
 # Define the chart panel background color.
 PANEL = "#151a22"
 
-
 # ---------- DATA HELPERS ----------
 
 # Cache historical data for five minutes.
@@ -189,6 +189,22 @@ def get_quote(ticker):
 
     # Return the price and both change values.
     return price, change, pct
+
+
+# Refresh the exchange directory daily and reuse it across dashboard reruns.
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_stock_universe():
+    return load_us_stock_universe()
+
+
+# Load the listing directory once per day. Keep the rest of the dashboard
+# usable if the public directory is temporarily unavailable.
+universe_error = None
+try:
+    stock_universe = get_stock_universe()
+except (OSError, ValueError, pd.errors.ParserError) as exc:
+    stock_universe = pd.DataFrame(columns=["Ticker", "Company", "Exchange"])
+    universe_error = exc
 
 
 # Format a number as a dollar amount.
@@ -404,11 +420,32 @@ with left:
 
     # Create the stock selector.
     with controls[0]:
+        default_symbols = [
+            "NVDA", "AAPL", "MSFT", "GOOGL", "AMZN",
+            "META", "TSLA", "AMD", "NFLX", "BRK-B",
+        ]
+        stock_symbols = (
+            stock_universe["Ticker"].tolist()
+            if not stock_universe.empty
+            else default_symbols
+        )
+        stock_names = (
+            stock_universe.set_index("Ticker")["Company"].to_dict()
+            if not stock_universe.empty
+            else {}
+        )
+        selected_ticker = st.session_state.get("selected_ticker", "NVDA")
+        if selected_ticker not in stock_symbols:
+            stock_symbols.insert(0, selected_ticker)
         ticker = st.selectbox(
             "Stock",
-            ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN",
-             "META", "TSLA", "AMD", "NFLX", "BRK-B"],
-            index=0,
+            stock_symbols,
+            index=stock_symbols.index(selected_ticker),
+            format_func=lambda symbol: (
+                f"{symbol} — {stock_names[symbol]}"
+                if symbol in stock_names
+                else symbol
+            ),
         )
 
     # Create the period selector.
@@ -675,6 +712,56 @@ if rows:
 else:
     st.info("Market data is temporarily unavailable. Please try again later.")
 
+# ---------- ALL US-LISTED STOCKS ----------
+
+st.write("")
+st.divider()
+st.markdown("### Explore US-listed stocks")
+st.caption(
+    "Search active stock listings across Nasdaq, NYSE, NYSE American, NYSE Arca, "
+    "IEX, Cboe BZX, and other US-listed venues. ETFs and test issues are excluded. "
+    "Prices are loaded "
+    "only for the stock selected above and may be delayed."
+)
+
+if universe_error is not None:
+    st.warning(
+        "The exchange directory could not be loaded. The chart selector is using "
+        "its built-in stock list instead."
+    )
+    st.caption(str(universe_error))
+elif not stock_universe.empty:
+    stock_search = st.text_input(
+        "Search by ticker or company",
+        placeholder="e.g. AAPL or Apple",
+        key="stock_universe_search",
+    ).strip()
+    visible_stocks = stock_universe
+    if stock_search:
+        matches = (
+            visible_stocks["Ticker"].str.contains(
+                stock_search, case=False, regex=False, na=False
+            )
+            | visible_stocks["Company"].str.contains(
+                stock_search, case=False, regex=False, na=False
+            )
+        )
+        visible_stocks = visible_stocks.loc[matches]
+
+    st.caption(f"Showing {len(visible_stocks):,} of {len(stock_universe):,} listings")
+    st.dataframe(
+        visible_stocks,
+        use_container_width=True,
+        hide_index=True,
+        height=460,
+        column_config={
+            "Ticker": st.column_config.TextColumn("Ticker"),
+            "Company": st.column_config.TextColumn("Company"),
+            "Exchange": st.column_config.TextColumn("Exchange"),
+        },
+    )
+else:
+    st.warning("The exchange directory returned no stock listings.")
 
 # ---------- LIVE SPCX MONITOR ----------
 

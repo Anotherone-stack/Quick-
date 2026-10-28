@@ -2,6 +2,8 @@ SPCX Market Dashboard
 
 A Streamlit stock dashboard with historical market charts and an optional live SPCX quote and trade monitor powered by Alpaca.
 
+The dashboard also includes a searchable directory of active, non-ETF stock listings across major US exchanges, sourced from Nasdaq Trader. Select a ticker in the chart selector to load its available Yahoo Finance history; the app does not fetch quotes for every listing at once.
+
 The live monitor displays bid and ask prices, a bounded trade tape, estimated trade direction, and large-trade alerts. It runs alongside the existing historical dashboard.
 
 Features
