@@ -15,7 +15,9 @@ import plotly.graph_objects as go
 import yfinance as yf
 
 from src.live_monitor import LiveMonitor
+from src.news import NEWS_SOURCES, load_news
 from src.stock_universe import load_us_stock_universe
+from src.watchlist import DEFAULT_WATCHLIST, load_watchlist, save_watchlist
 
 
 # Configure the Streamlit page.
@@ -263,6 +265,12 @@ def get_stock_universe():
     return load_us_stock_universe()
 
 
+# Refresh trusted publisher feeds every fifteen minutes.
+@st.cache_data(ttl=900, show_spinner=False)
+def get_news():
+    return load_news()
+
+
 # Load the listing directory once per day. Keep the rest of the dashboard
 # usable if the public directory is temporarily unavailable.
 universe_error = None
@@ -352,6 +360,14 @@ def make_chart(data, ticker, chart_type="Area"):
 
 # ---------- SIDEBAR ----------
 
+if "watchlist_symbols" not in st.session_state:
+    try:
+        st.session_state["watchlist_symbols"] = load_watchlist()
+        st.session_state["watchlist_load_error"] = None
+    except (OSError, ValueError) as exc:
+        st.session_state["watchlist_symbols"] = DEFAULT_WATCHLIST.copy()
+        st.session_state["watchlist_load_error"] = str(exc)
+
 # Place navigation and watchlist elements in the sidebar.
 with st.sidebar:
 
@@ -367,7 +383,7 @@ with st.sidebar:
     # Create the workspace navigation menu.
     page = st.radio(
         "WORKSPACE",  # Navigation label.
-        ["Overview", "Watchlist", "Explore"],  # Available pages.
+        ["Overview", "Watchlist", "Explore", "News"],  # Available pages.
         label_visibility="visible",  # Show the label.
     )
 
@@ -377,12 +393,107 @@ with st.sidebar:
     # Display the watchlist heading.
     st.markdown("**YOUR WATCHLIST**")
 
-    # Define the default watchlist.
-    watchlist = ["AAPL", "NVDA", "MSFT", "GOOGL", "AMZN"]
+    watchlist = st.session_state["watchlist_symbols"]
+    company_names = (
+        stock_universe.set_index("Ticker")["Company"].to_dict()
+        if not stock_universe.empty
+        else {}
+    )
 
-    # Display each ticker in the sidebar.
-    for symbol in watchlist:
-        st.markdown(f"↗  **{symbol}**")
+    if st.session_state["watchlist_load_error"]:
+        st.error(
+            "Could not read the saved watchlist. The starter list is shown; "
+            "saving it will replace the unreadable file."
+        )
+        st.caption(st.session_state["watchlist_load_error"])
+
+    watchlist_search = st.text_input(
+        "Search watchlist",
+        placeholder="Ticker or company",
+        key="watchlist_search",
+        label_visibility="collapsed",
+    ).strip()
+    visible_watchlist = [
+        symbol for symbol in watchlist
+        if watchlist_search.casefold() in symbol.casefold()
+        or watchlist_search.casefold()
+        in company_names.get(symbol, "").casefold()
+    ]
+
+    with st.expander("Add a stock"):
+        if stock_universe.empty:
+            st.info("The stock directory is unavailable, so stocks cannot be searched.")
+        else:
+            add_search = st.text_input(
+                "Find a stock",
+                placeholder="Ticker or company name",
+                key="watchlist_add_search",
+            ).strip()
+            matching_stocks = stock_universe
+            if add_search:
+                matches = (
+                    matching_stocks["Ticker"].str.contains(
+                        add_search, case=False, regex=False, na=False
+                    )
+                    | matching_stocks["Company"].str.contains(
+                        add_search, case=False, regex=False, na=False
+                    )
+                )
+                matching_stocks = matching_stocks.loc[matches].head(50)
+
+            if add_search and not matching_stocks.empty:
+                add_options = matching_stocks["Ticker"].tolist()
+                selected_to_add = st.selectbox(
+                    "Matching stocks",
+                    add_options,
+                    format_func=lambda symbol: (
+                        f"{symbol} — {company_names.get(symbol, '')}"
+                    ),
+                    key="watchlist_add_selection",
+                )
+                if st.button(
+                    "Save to watchlist",
+                    use_container_width=True,
+                    disabled=selected_to_add in watchlist,
+                    key="watchlist_add_button",
+                ):
+                    updated_watchlist = [*watchlist, selected_to_add]
+                    try:
+                        save_watchlist(updated_watchlist)
+                    except OSError as exc:
+                        st.error(f"Could not save watchlist: {exc}")
+                    else:
+                        st.session_state["watchlist_symbols"] = updated_watchlist
+                        st.rerun()
+            elif add_search:
+                st.info("No listed stocks match that search.")
+
+    if not visible_watchlist:
+        empty_message = (
+            "No saved stocks match your search."
+            if watchlist
+            else "Your watchlist is empty."
+        )
+        st.caption(empty_message)
+    for symbol in visible_watchlist:
+        symbol_col, remove_col = st.columns([5, 1])
+        symbol_col.markdown(f"↗  **{symbol}**")
+        if remove_col.button(
+            "×",
+            key=f"remove_watchlist_{symbol}",
+            help=f"Remove {symbol} from watchlist",
+        ):
+            updated_watchlist = [
+                saved_symbol for saved_symbol in watchlist
+                if saved_symbol != symbol
+            ]
+            try:
+                save_watchlist(updated_watchlist)
+            except OSError as exc:
+                st.error(f"Could not save watchlist: {exc}")
+            else:
+                st.session_state["watchlist_symbols"] = updated_watchlist
+                st.rerun()
 
     # Add a divider above the footer.
     st.divider()
@@ -401,8 +512,14 @@ col_title, col_time = st.columns([3, 1])
 
 # Display the page title and subtitle.
 with col_title:
-    st.title("Market overview" if page == "Overview" else page)
-    st.caption("Track the market. Discover opportunities. Stay informed.")
+    st.title("News & reports" if page == "News" else (
+        "Market overview" if page == "Overview" else page
+    ))
+    st.caption(
+        "Trusted business coverage and official financial updates."
+        if page == "News"
+        else "Track the market. Discover opportunities. Stay informed."
+    )
 
 # Display the current date on the right.
 with col_time:
@@ -414,6 +531,69 @@ with col_time:
 
 # Add vertical spacing.
 st.write("")
+
+if page == "News":
+    st.markdown("### Trusted sources")
+    st.caption(
+        "Headlines come directly from BBC Business, the U.S. Securities and "
+        "Exchange Commission, and the Federal Reserve. Article links are limited "
+        "to each publisher's verified domain."
+    )
+
+    source_names = [source.name for source in NEWS_SOURCES]
+    selected_sources = st.multiselect(
+        "Sources",
+        source_names,
+        default=source_names,
+        key="news_sources",
+    )
+    news_search = st.text_input(
+        "Search headlines and reports",
+        placeholder="Search title or summary",
+        key="news_search",
+    ).strip()
+
+    with st.spinner("Loading updates from trusted sources..."):
+        news_articles, news_errors = get_news()
+
+    selected_articles = [
+        article for article in news_articles
+        if article["source"] in selected_sources
+        and (
+            not news_search
+            or news_search.casefold() in article["title"].casefold()
+            or news_search.casefold() in article["summary"].casefold()
+        )
+    ]
+
+    for source_name, error in news_errors.items():
+        st.warning(f"{source_name} is unavailable right now: {error}")
+
+    if not selected_articles:
+        if news_errors and not news_articles:
+            st.info("No source feeds are available right now. Please try again later.")
+        elif not selected_sources:
+            st.info("Select at least one source to view its updates.")
+        else:
+            st.info("No updates match your search.")
+    else:
+        st.caption(
+            f"Showing {len(selected_articles)} updates. Feeds refresh every 15 minutes."
+        )
+        for article in selected_articles:
+            with st.container(border=True):
+                st.caption(article["source"])
+                st.markdown(f"**{article['title']}**")
+                if article["published"]:
+                    published = datetime.fromisoformat(article["published"])
+                    st.caption(published.strftime("%b %d, %Y · %H:%M UTC"))
+                if article["summary"]:
+                    st.write(article["summary"])
+                st.link_button(
+                    f"Read at {article['source']}",
+                    article["link"],
+                )
+    st.stop()
 
 
 # ---------- MARKET SUMMARY ----------
@@ -644,7 +824,7 @@ with right:
     st.caption("Latest available prices")
 
     # Loop through each watchlist ticker.
-    for symbol in watchlist:
+    for symbol in visible_watchlist:
 
         # Attempt to retrieve the stock quote.
         try:

@@ -4,11 +4,16 @@ A Streamlit stock dashboard with historical stock charts and a selectable live s
 
 The dashboard also includes a searchable directory of active, non-ETF stock listings across major US exchanges, sourced from Nasdaq Trader. Select a ticker in the chart selector to load its available Yahoo Finance history; the app does not fetch quotes for every listing at once.
 
+The sidebar watchlist can be searched by ticker or company, and stocks can be added from the exchange directory or removed. Changes are saved locally in `watchlist.json` and persist across app restarts; this file is excluded from Git. On a shared deployment, users of the same app instance share this local watchlist.
+
+The **News** workspace aggregates business headlines from BBC Business and official releases from the U.S. Securities and Exchange Commission and Federal Reserve. It refreshes every 15 minutes, supports source and text filtering, and only displays article links hosted on those publishers' domains.
+
 The live monitor displays bid and ask prices, a bounded trade tape, estimated trade direction, and large-trade alerts. It runs alongside the existing historical dashboard.
 
 Features
 
 Live Market Data: Streams real-time quotes and trades for the selected stock using Alpaca's IEX data feed.
+Trusted News: Aggregates BBC Business reporting and official SEC and Federal Reserve releases.
 Bid and Ask Monitoring: Displays the latest bid and ask prices along with their respective sizes.
 Live Trade Tape: Shows recent trades, including timestamps, prices, share sizes, and estimated trade direction.
 Trade Direction Estimation: Classifies trades as buy-initiated, sell-initiated, or uncertain based on the most recently received quote.
