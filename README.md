@@ -1,6 +1,6 @@
 SPCX Market Dashboard
 
-A Streamlit stock dashboard with historical market charts and an optional live SPCX quote and trade monitor powered by Alpaca.
+A Streamlit stock dashboard with historical stock charts and a selectable live stock quote and trade monitor powered by Alpaca.
 
 The dashboard also includes a searchable directory of active, non-ETF stock listings across major US exchanges, sourced from Nasdaq Trader. Select a ticker in the chart selector to load its available Yahoo Finance history; the app does not fetch quotes for every listing at once.
 
@@ -8,7 +8,7 @@ The live monitor displays bid and ask prices, a bounded trade tape, estimated tr
 
 Features
 
-Live Market Data: Streams real-time quotes and trades for SPCX using Alpaca's IEX data feed.
+Live Market Data: Streams real-time quotes and trades for the selected stock using Alpaca's IEX data feed.
 Bid and Ask Monitoring: Displays the latest bid and ask prices along with their respective sizes.
 Live Trade Tape: Shows recent trades, including timestamps, prices, share sizes, and estimated trade direction.
 Trade Direction Estimation: Classifies trades as buy-initiated, sell-initiated, or uncertain based on the most recently received quote.
@@ -101,7 +101,7 @@ From the repository root, start the dashboard:
 
 streamlit run src/app_ui.py
 
-The dashboard opens in your browser. In the **SPCX live market monitor** section, click **Start feed** to connect to Alpaca. The monitor updates every two seconds, shows incoming quotes and trades, and marks large trades with `<<< LARGE TRADE`. Click **Stop feed** to end the stream.
+The dashboard opens in your browser. In the **Live market monitor** section, search by ticker or company name, select a stock, then click **Switch stock** to connect to that symbol. Changing symbols stops the previous feed and starts a fresh monitor. The monitor updates every two seconds, shows incoming quotes and trades, and marks large trades with `<<< LARGE TRADE`. Click **Stop feed** to end the stream.
 
 Run the automated tests with:
 
@@ -233,8 +233,7 @@ Solution: Set `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` in the environment use
 
 Limitations and Considerations
 
-The application monitors only the configured symbol, SPCX.
-The data feed is set to IEX rather than consolidated market data.
+The live monitor subscribes to one selected symbol at a time using Alpaca's IEX feed, not consolidated all-exchange data. Symbol coverage and access depend on Alpaca account permissions.
 Trade direction is estimated using the latest available quote and is not a definitive classification.
 Trade history and counters are stored in memory and are not persisted to disk.
 The dashboard limits the visible trade tape to 500 entries.

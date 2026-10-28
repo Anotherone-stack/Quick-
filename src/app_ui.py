@@ -48,13 +48,79 @@ html, body, [class*="css"] {
 
 /* Style the sidebar. */
 section[data-testid="stSidebar"] {
-    background: #11151c;
-    border-right: 1px solid #242a34;
+    background: linear-gradient(180deg, #121b29 0%, #0e1520 100%);
+    border-right: 1px solid #263449;
+}
+
+section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+    padding: 1.35rem 1rem 1.5rem;
 }
 
 /* Set sidebar text colors. */
 section[data-testid="stSidebar"] * {
     color: #dce2ea;
+}
+
+section[data-testid="stSidebar"] h1 {
+    margin: 0.2rem 0 0.15rem;
+    color: #f4f7fb !important;
+    font-size: 1.65rem;
+    font-weight: 700;
+    letter-spacing: -0.7px;
+}
+
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+    color: #91a1b5;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] > label {
+    color: #91a1b5;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] {
+    gap: 0.35rem;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label {
+    min-height: 2.6rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid transparent;
+    border-radius: 0.55rem;
+    color: #b7c3d2;
+    transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label:hover {
+    background: rgba(148, 174, 205, 0.08);
+    border-color: #2a3a50;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) {
+    background: rgba(70, 127, 185, 0.18);
+    border-color: #355a7e;
+    color: #f3f7fc;
+    font-weight: 600;
+}
+
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p:has(strong) {
+    margin: 0.35rem 0;
+    padding: 0.55rem 0.7rem;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(132, 157, 187, 0.12);
+    border-radius: 0.5rem;
+    color: #dce5ef;
+    font-size: 0.88rem;
+}
+
+section[data-testid="stSidebar"] hr {
+    margin: 1.1rem 0;
+    border-color: #263449;
 }
 
 /* Adjust the main content spacing. */
@@ -795,15 +861,116 @@ else:
 
 @st.fragment(run_every="2s")
 def render_live_monitor():
-    st.markdown("### SPCX live market monitor")
+    st.markdown("### Live market monitor")
     st.caption(
-        "Live IEX quotes and trades from Alpaca. Trade direction is an estimate."
+        "Search US-listed stocks and choose Switch stock to change the feed. "
+        "Quotes and trades use Alpaca's IEX feed; availability depends on your account."
     )
 
     if "live_monitor" not in st.session_state:
         st.session_state["live_monitor"] = LiveMonitor()
     monitor = st.session_state["live_monitor"]
+
+    search_col, symbol_col, switch_col = st.columns([1.3, 1.7, 1])
+    with search_col:
+        live_stock_search = st.text_input(
+            "Search stocks",
+            placeholder="Ticker or company name",
+            key="live_stock_search",
+        ).strip()
+
+    live_stocks = stock_universe
+    if not live_stocks.empty and live_stock_search:
+        matches = (
+            live_stocks["Ticker"].str.contains(
+                live_stock_search, case=False, regex=False, na=False
+            )
+            | live_stocks["Company"].str.contains(
+                live_stock_search, case=False, regex=False, na=False
+            )
+        )
+        live_stocks = live_stocks.loc[matches]
+
+    if live_stocks.empty and universe_error is not None:
+        live_symbols = sorted({
+            monitor.symbol,
+            "AAPL",
+            "AMZN",
+            "GOOGL",
+            "MSFT",
+            "NVDA",
+        })
+        if live_stock_search:
+            live_symbols = [
+                symbol for symbol in live_symbols
+                if live_stock_search.casefold() in symbol.casefold()
+            ]
+        live_names = {}
+    else:
+        live_symbols = live_stocks["Ticker"].tolist()
+        live_names = live_stocks.set_index("Ticker")["Company"].to_dict()
+
+    if live_symbols and monitor.symbol not in live_symbols and not live_stock_search:
+        live_symbols.insert(0, monitor.symbol)
+    if live_symbols:
+        selection = st.session_state.get("live_stock_selection", monitor.symbol)
+        if selection not in live_symbols:
+            selection = live_symbols[0]
+            st.session_state["live_stock_selection"] = selection
+        with symbol_col:
+            selected_symbol = st.selectbox(
+                "Stock",
+                live_symbols,
+                index=live_symbols.index(selection),
+                key="live_stock_selection",
+                format_func=lambda symbol: (
+                    f"{symbol} — {live_names[symbol]}"
+                    if symbol in live_names
+                    else symbol
+                ),
+            )
+        with switch_col:
+            switch_stock = st.button(
+                "Switch stock",
+                use_container_width=True,
+                disabled=selected_symbol == monitor.symbol,
+                key="live_monitor_switch",
+            )
+    else:
+        selected_symbol = monitor.symbol
+        switch_stock = False
+        with symbol_col:
+            st.selectbox("Stock", ["No matching stocks"], disabled=True)
+        with switch_col:
+            st.button("Switch stock", disabled=True, key="live_monitor_switch")
+        st.info("No stocks match that search. Try another ticker or company name.")
+
     market_data = st.session_state.get("live_market_data")
+
+    if switch_stock:
+        if market_data is not None and market_data.is_running:
+            market_data.stop()
+        monitor = LiveMonitor(symbol=selected_symbol)
+        st.session_state["live_monitor"] = monitor
+        st.session_state["live_market_data"] = None
+        market_data = None
+        try:
+            from alpaca.data.enums import DataFeed
+
+            from src.market_data import AlpacaMarketData
+
+            market_data = AlpacaMarketData(
+                [monitor.symbol],
+                on_trade=monitor.record_trade,
+                on_quote=monitor.record_quote,
+                feed=DataFeed.IEX,
+            )
+            market_data.start()
+            st.session_state["live_market_data"] = market_data
+            st.success(f"Switched live monitor to {monitor.symbol}.")
+        except Exception as exc:
+            st.error(f"Unable to switch the Alpaca feed: {exc}")
+
     is_running = market_data is not None and market_data.is_running
 
     start_col, stop_col, status_col = st.columns([1, 1, 3])
@@ -842,11 +1009,11 @@ def render_live_monitor():
         "reconnect_attempts": 0,
     }
     if connection["connected"]:
-        status_col.success("LIVE")
+        status_col.success(f"LIVE · {monitor.symbol}")
     elif connection["running"]:
-        status_col.info("CONNECTING / RECONNECTING")
+        status_col.info(f"CONNECTING / RECONNECTING · {monitor.symbol}")
     else:
-        status_col.caption("DISCONNECTED")
+        status_col.caption(f"DISCONNECTED · {monitor.symbol}")
 
     if connection["last_error"]:
         st.warning(
