@@ -1,6 +1,9 @@
 
 # Import datetime to display the current date.
 from datetime import datetime
+import hashlib
+import os
+import time
 
 # Import Streamlit to build the web dashboard.
 import streamlit as st
@@ -15,7 +18,7 @@ import plotly.graph_objects as go
 import yfinance as yf
 
 from src.live_monitor import LiveMonitor
-from src.news import NEWS_SOURCES, load_news
+from src.news import NEWS_SOURCES, load_news, summarize_news
 from src.stock_universe import load_us_stock_universe
 from src.watchlist import DEFAULT_WATCHLIST, load_watchlist, save_watchlist
 
@@ -208,8 +211,8 @@ PANEL = "#151a22"
 
 # ---------- DATA HELPERS ----------
 
-# Cache historical data for five minutes.
-@st.cache_data(ttl=300, show_spinner=False)
+# Cache historical data for five seconds.
+@st.cache_data(ttl=5, show_spinner=False)
 def get_history(ticker, period):
 
     # Download historical stock prices.
@@ -232,8 +235,8 @@ def get_history(ticker, period):
     return data
 
 
-# Cache stock quote calculations for five minutes.
-@st.cache_data(ttl=300, show_spinner=False)
+# Cache stock quote calculations for five seconds.
+@st.cache_data(ttl=5, show_spinner=False)
 def get_quote(ticker):
 
     # Retrieve five days of stock history.
@@ -265,8 +268,8 @@ def get_stock_universe():
     return load_us_stock_universe()
 
 
-# Refresh trusted publisher feeds every fifteen minutes.
-@st.cache_data(ttl=900, show_spinner=False)
+# Check publisher feeds once a minute; dashboard reruns do not refetch them.
+@st.cache_data(ttl=60, show_spinner=False)
 def get_news():
     return load_news()
 
@@ -387,6 +390,16 @@ with st.sidebar:
         label_visibility="visible",  # Show the label.
     )
 
+    auto_refresh = st.toggle(
+        "Auto-refresh dashboard (5 sec)",
+        value=True,
+        key="auto_refresh_market_news",
+        help=(
+            "Refreshes stock data every five seconds. News feeds are checked "
+            "once per minute."
+        ),
+    )
+
     # Add a divider below navigation.
     st.divider()
 
@@ -505,6 +518,24 @@ with st.sidebar:
     st.caption("Prices may be delayed.")
 
 
+@st.fragment(run_every="5s")
+def refresh_dashboard_data():
+    if not auto_refresh:
+        st.session_state.pop("_last_dashboard_refresh", None)
+        return
+
+    now = time.monotonic()
+    last_refresh = st.session_state.get("_last_dashboard_refresh")
+    if last_refresh is None:
+        st.session_state["_last_dashboard_refresh"] = now
+    elif now - last_refresh >= 4.5:
+        st.session_state["_last_dashboard_refresh"] = now
+        st.rerun(scope="app")
+
+
+refresh_dashboard_data()
+
+
 # ---------- HEADER ----------
 
 # Create columns for the title and date.
@@ -516,7 +547,7 @@ with col_title:
         "Market overview" if page == "Overview" else page
     ))
     st.caption(
-        "Trusted business coverage and official financial updates."
+        "Business coverage and official financial updates."
         if page == "News"
         else "Track the market. Discover opportunities. Stay informed."
     )
@@ -533,14 +564,14 @@ with col_time:
 st.write("")
 
 if page == "News":
-    st.markdown("### Trusted sources")
+    st.markdown("### Latest market news")
     st.caption(
-        "Headlines come directly from BBC Business, the U.S. Securities and "
-        "Exchange Commission, and the Federal Reserve. Article links are limited "
-        "to each publisher's verified domain."
+        "Updates are polled from curated publisher and official RSS feeds every "
+        "minute; links are restricted to each publisher's verified domain. "
+        "Use the publisher filter to narrow results."
     )
 
-    source_names = [source.name for source in NEWS_SOURCES]
+    source_names = [source.name for source in NEWS_SOURCES] + ["Yahoo Finance"]
     selected_sources = st.multiselect(
         "Sources",
         source_names,
@@ -553,7 +584,7 @@ if page == "News":
         key="news_search",
     ).strip()
 
-    with st.spinner("Loading updates from trusted sources..."):
+    with st.spinner("Checking publisher feeds..."):
         news_articles, news_errors = get_news()
 
     selected_articles = [
@@ -569,6 +600,42 @@ if page == "News":
     for source_name, error in news_errors.items():
         st.warning(f"{source_name} is unavailable right now: {error}")
 
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    digest_articles = selected_articles[:20]
+    digest_signature = hashlib.sha256(
+        "\n".join(
+            f"{article['link']}|{article['title']}"
+            for article in digest_articles
+        ).encode("utf-8")
+    ).hexdigest()
+    if digest_articles and api_key:
+        if st.session_state.get("news_digest_signature") != digest_signature:
+            with st.spinner("Preparing an AI summary of the latest updates..."):
+                try:
+                    st.session_state["news_ai_digest"] = summarize_news(
+                        digest_articles,
+                        api_key,
+                    )
+                    st.session_state["news_digest_signature"] = digest_signature
+                    st.session_state["news_digest_error"] = None
+                except (RuntimeError, ValueError) as exc:
+                    st.session_state["news_digest_error"] = str(exc)
+        if st.session_state.get("news_digest_error"):
+            st.error(f"AI summary unavailable: {st.session_state['news_digest_error']}")
+        elif st.session_state.get("news_ai_digest"):
+            with st.container(border=True):
+                st.markdown("#### AI news brief")
+                st.caption(
+                    "AI-generated from the listed publisher reports. "
+                    "Verify details in the original articles."
+                )
+                st.markdown(st.session_state["news_ai_digest"])
+    elif not api_key:
+        st.info(
+            "Automatic feed monitoring is active. To enable AI summaries, set "
+            "the OPENAI_API_KEY environment variable and restart the app."
+        )
+
     if not selected_articles:
         if news_errors and not news_articles:
             st.info("No source feeds are available right now. Please try again later.")
@@ -578,11 +645,17 @@ if page == "News":
             st.info("No updates match your search.")
     else:
         st.caption(
-            f"Showing {len(selected_articles)} updates. Feeds refresh every 15 minutes."
+            f"Showing {len(selected_articles)} updates. "
+            "Feeds are checked every minute while auto-refresh is enabled."
         )
         for article in selected_articles:
             with st.container(border=True):
-                st.caption(article["source"])
+                publisher = article.get("publisher", article["source"])
+                st.caption(
+                    article["source"]
+                    if publisher == article["source"]
+                    else f"{article['source']} · {publisher}"
+                )
                 st.markdown(f"**{article['title']}**")
                 if article["published"]:
                     published = datetime.fromisoformat(article["published"])

@@ -6,14 +6,16 @@ The dashboard also includes a searchable directory of active, non-ETF stock list
 
 The sidebar watchlist can be searched by ticker or company, and stocks can be added from the exchange directory or removed. Changes are saved locally in `watchlist.json` and persist across app restarts; this file is excluded from Git. On a shared deployment, users of the same app instance share this local watchlist.
 
-The **News** workspace aggregates business headlines from BBC Business and official releases from the U.S. Securities and Exchange Commission and Federal Reserve. It refreshes every 15 minutes, supports source and text filtering, and only displays article links hosted on those publishers' domains.
+The **News** workspace polls public RSS feeds from BBC Business, The Guardian Business, NPR Business, the U.S. Securities and Exchange Commission, and the Federal Reserve, and adds headlines from Yahoo Finance's market news search. It checks feeds once per minute, supports source and text filtering, and only displays HTTPS links hosted by the named publisher or Yahoo Finance. Optional AI briefs use OpenAI and require `OPENAI_API_KEY`; news monitoring itself does not require an API key.
+
+The dashboard can automatically refresh stock quotes and chart data every five seconds. Use the **Auto-refresh dashboard (5 sec)** switch in the sidebar to pause or resume it. News feeds are checked once per minute.
 
 The live monitor displays bid and ask prices, a bounded trade tape, estimated trade direction, and large-trade alerts. It runs alongside the existing historical dashboard.
 
 Features
 
 Live Market Data: Streams real-time quotes and trades for the selected stock using Alpaca's IEX data feed.
-Trusted News: Aggregates BBC Business reporting and official SEC and Federal Reserve releases.
+News Monitoring: Polls publisher and official-source RSS feeds; optional OpenAI summaries are generated from source-attributed headlines and descriptions.
 Bid and Ask Monitoring: Displays the latest bid and ask prices along with their respective sizes.
 Live Trade Tape: Shows recent trades, including timestamps, prices, share sizes, and estimated trade direction.
 Trade Direction Estimation: Classifies trades as buy-initiated, sell-initiated, or uncertain based on the most recently received quote.
@@ -81,6 +83,7 @@ The application requires two environment variables:
 
 APCA_API_KEY_ID — Your Alpaca API key ID.
 APCA_API_SECRET_KEY — Your Alpaca API secret key.
+OPENAI_API_KEY — Optional OpenAI API key for AI-generated news briefs.
 Obtain your credentials through the official Alpaca website.
 
 Set credentials on Windows
